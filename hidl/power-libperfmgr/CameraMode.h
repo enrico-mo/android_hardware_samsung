@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 The LineageOS Project
+ * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,17 @@
  * limitations under the License.
  */
 
-#ifndef SAMSUNG_FASTCHARGE_H
-#define SAMSUNG_FASTCHARGE_H
+#ifndef POWER_LIBPERFMGR_CAMERAMODE_H_
+#define POWER_LIBPERFMGR_CAMERAMODE_H_
 
-#define FASTCHARGE_DEFAULT_SETTING true
-#define FASTCHARGE_PATH "/sys/class/sec/switch/afc_disable"
+enum CameraStreamingMode {
+    CAMERA_STREAMING_OFF = 0,
+    CAMERA_STREAMING,
+    CAMERA_STREAMING_1080P,
+    CAMERA_STREAMING_60FPS,
+    CAMERA_STREAMING_4K,
+    CAMERA_STREAMING_SECURE,
+    CAMERA_STREAMING_MAX
+};
 
-#endif // SAMSUNG_FASTCHARGE_H
+#endif  // POWER_LIBPERFMGR_CAMERAMODE_H_

@@ -20,7 +20,6 @@ cc_binary {
     // FIXME: this should be 'vendor: true' for modules that will eventually be
     // on AOSP.
     proprietary: true,
-    local_include_dirs: ["include"],
     srcs: [
         "GloveMode.cpp",
         "KeyDisabler.cpp",

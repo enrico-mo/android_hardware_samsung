@@ -26,9 +26,8 @@
 #include <hidl/Status.h>
 #include <perfmgr/HintManager.h>
 
+#include "CameraMode.h"
 #include "InteractionHandler.h"
-
-#include <vendor/lineage/power/1.0/ILineagePower.h>
 
 namespace android {
 namespace hardware {
@@ -46,26 +45,13 @@ using PowerHint_1_2 = ::android::hardware::power::V1_2::PowerHint;
 using PowerHint_1_3 = ::android::hardware::power::V1_3::PowerHint;
 using ::android::perfmgr::HintManager;
 
-using ::vendor::lineage::power::V1_0::ILineagePower;
-using ::vendor::lineage::power::V1_0::LineageFeature;
-using ::vendor::lineage::power::V1_0::LineagePowerHint;
-
-enum PowerProfile {
-    POWER_SAVE = 0,
-    BALANCED,
-    HIGH_PERFORMANCE,
-    BIAS_POWER_SAVE,
-    BIAS_PERFORMANCE,
-    MAX
-};
-
-class Power : public IPower, public ILineagePower {
+class Power : public IPower {
   public:
     // Methods from ::android::hardware::power::V1_0::IPower follow.
 
     Power();
 
-    Return<void> setInteractive(bool interactive) override;
+    Return<void> setInteractive(bool /* interactive */) override;
     Return<void> powerHint(PowerHint_1_0 hint, int32_t data) override;
     Return<void> setFeature(Feature feature, bool activate) override;
     Return<void> getPlatformLowPowerStats(getPlatformLowPowerStats_cb _hidl_cb) override;
@@ -80,9 +66,6 @@ class Power : public IPower, public ILineagePower {
     // Methods from ::android::hardware::power::V1_3::IPower follow.
     Return<void> powerHintAsync_1_3(PowerHint_1_3 hint, int32_t data) override;
 
-    // Methods from ::vendor::lineage::power::V1_0::ILineagePower follow.
-    Return<int32_t> getFeature(LineageFeature feature) override;
-
     // Methods from ::android::hidl::base::V1_0::IBase follow.
     Return<void> debug(const hidl_handle &fd, const hidl_vec<hidl_string> &args) override;
 
@@ -91,18 +74,9 @@ class Power : public IPower, public ILineagePower {
     std::unique_ptr<InteractionHandler> mInteractionHandler;
     std::atomic<bool> mVRModeOn;
     std::atomic<bool> mSustainedPerfModeOn;
-    std::atomic<bool> mCameraStreamingMode;
+    std::atomic<enum CameraStreamingMode> mCameraStreamingMode;
     std::atomic<bool> mReady;
     std::thread mInitThread;
-
-    std::atomic<bool> mDoubleTapEnabled;
-
-    int32_t mNumPerfProfiles;
-    std::atomic<PowerProfile> mCurrentPerfProfile;
-
-    Return<void> updateHint(const char *hint, bool enable);
-    Return<void> setProfile(PowerProfile profile);
-    Return<void> switchDT2W(bool dt2w);
 };
 
 }  // namespace implementation

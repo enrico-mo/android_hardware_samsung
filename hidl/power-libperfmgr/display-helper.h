@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016 The CyanogenMod Project
+ * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,19 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.lineageos.settings.doze;
 
-import android.os.Bundle;
-import android.preference.PreferenceActivity;
+#ifndef POWER_LIBPERFMGR_DISPLAY_HELPER_H_
+#define POWER_LIBPERFMGR_DISPLAY_HELPER_H_
 
-public class SamsungDozeActivity extends PreferenceActivity {
+enum display_lpm_state {
+    DISPLAY_LPM_OFF = 0,
+    DISPLAY_LPM_ON,
+    DISPLAY_LPM_UNKNOWN,
+};
 
-    private static final String TAG = "samsung_doze";
+void set_display_lpm(int enable);
 
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
-        getFragmentManager().beginTransaction().replace(android.R.id.content,
-                new TouchscreenGestureSettings(), TAG).commit();
-    }
-}
+#endif  // POWER_LIBPERFMGR_DISPLAY_HELPER_H_

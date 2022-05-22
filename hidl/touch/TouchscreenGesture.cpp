@@ -24,7 +24,7 @@ namespace touch {
 namespace V1_0 {
 namespace samsung {
 
-static constexpr const char* kGeasturePath = TOUCHSCREEN_GESTURE_NODE;
+static constexpr const char* kGeasturePath = "/sys/class/sec/sec_epen/epen_gestures";
 
 const std::map<int32_t, TouchscreenGesture::GestureInfo> TouchscreenGesture::kGestureInfoMap = {
     // clang-format off

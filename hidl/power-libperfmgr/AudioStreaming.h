@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016 The CyanogenMod Project
+ * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,19 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.lineageos.settings.doze;
 
-import android.os.Bundle;
-import android.preference.PreferenceActivity;
+#ifndef POWER_LIBPERFMGR_AUDIOSTREAMING_H_
+#define POWER_LIBPERFMGR_AUDIOSTREAMING_H_
 
-public class SamsungDozeActivity extends PreferenceActivity {
+enum AUDIO_STREAMING_HINT {
+    AUDIO_STREAMING_OFF = 0,
+    AUDIO_STREAMING_ON = 1,
+    TPU_BOOST_OFF = 1000,
+    TPU_BOOST_SHORT = 1001,
+    TPU_BOOST_LONG = 1002
+};
 
-    private static final String TAG = "samsung_doze";
+enum TPU_HINT_DURATION_MS { SHORT = 200, LONG = 2000 };
 
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
-        getFragmentManager().beginTransaction().replace(android.R.id.content,
-                new TouchscreenGestureSettings(), TAG).commit();
-    }
-}
+#endif  // POWER_LIBPERFMGR_AUDIOSTREAMING_H_
