@@ -28,9 +28,7 @@
 #include <utils/Log.h>
 #include <utils/Trace.h>
 
-#include "AudioStreaming.h"
 #include "Power.h"
-#include "display-helper.h"
 
 namespace android {
 namespace hardware {
@@ -43,28 +41,26 @@ using ::android::hardware::Return;
 using ::android::hardware::Void;
 using ::android::hardware::power::V1_0::Feature;
 using ::android::hardware::power::V1_0::Status;
+using namespace std::chrono_literals;
 
 constexpr char kPowerHalStateProp[] = "vendor.powerhal.state";
 constexpr char kPowerHalAudioProp[] = "vendor.powerhal.audio";
 constexpr char kPowerHalInitProp[] = "vendor.powerhal.init";
 constexpr char kPowerHalRenderingProp[] = "vendor.powerhal.rendering";
+constexpr char kPowerHalProfileNumProp[] = "vendor.powerhal.perf_profiles";
+constexpr char kPowerHalProfileProp[] = "vendor.powerhal.perf_profile";
 constexpr char kPowerHalConfigPath[] = "/vendor/etc/powerhint.json";
-
-static const std::map<enum CameraStreamingMode, std::string> kCamStreamingHint = {
-        {CAMERA_STREAMING_OFF, "CAMERA_STREAMING_OFF"},
-        {CAMERA_STREAMING, "CAMERA_STREAMING"},
-        {CAMERA_STREAMING_1080P, "CAMERA_STREAMING_1080P"},
-        {CAMERA_STREAMING_60FPS, "CAMERA_STREAMING_60FPS"},
-        {CAMERA_STREAMING_4K, "CAMERA_STREAMING_4K"},
-        {CAMERA_STREAMING_SECURE, "CAMERA_STREAMING_SECURE"}};
 
 Power::Power()
     : mHintManager(nullptr),
       mInteractionHandler(nullptr),
       mVRModeOn(false),
       mSustainedPerfModeOn(false),
-      mCameraStreamingMode(CAMERA_STREAMING_OFF),
-      mReady(false) {
+      mCameraStreamingMode(false),
+      mReady(false),
+      mDoubleTapEnabled(false),
+      mNumPerfProfiles(0),
+      mCurrentPerfProfile(PowerProfile::BALANCED) {
     mInitThread = std::thread([this]() {
         android::base::WaitForProperty(kPowerHalInitProp, "1");
         mHintManager = HintManager::GetFromJSON(kPowerHalConfigPath);
@@ -77,23 +73,7 @@ Power::Power()
         if (state == "CAMERA_STREAMING") {
             ALOGI("Initialize with CAMERA_STREAMING on");
             mHintManager->DoHint("CAMERA_STREAMING");
-            mCameraStreamingMode = CAMERA_STREAMING;
-        } else if (state == "CAMERA_STREAMING_1080P") {
-            ALOGI("Initialize CAMERA_STREAMING_1080P on");
-            mHintManager->DoHint("CAMERA_STREAMING_1080P");
-            mCameraStreamingMode = CAMERA_STREAMING_1080P;
-        } else if (state == "CAMERA_STREAMING_60FPS") {
-            ALOGI("Initialize CAMERA_STREAMING_60FPS on");
-            mHintManager->DoHint("CAMERA_STREAMING_60FPS");
-            mCameraStreamingMode = CAMERA_STREAMING_60FPS;
-        } else if (state == "CAMERA_STREAMING_4K") {
-            ALOGI("Initialize with CAMERA_STREAMING_4K on");
-            mHintManager->DoHint("CAMERA_STREAMING_4K");
-            mCameraStreamingMode = CAMERA_STREAMING_4K;
-        } else if (state == "CAMERA_STREAMING_SECURE") {
-            ALOGI("Initialize with CAMERA_STREAMING_SECURE on");
-            mHintManager->DoHint("CAMERA_STREAMING_SECURE");
-            mCameraStreamingMode = CAMERA_STREAMING_SECURE;
+            mCameraStreamingMode = true;
         } else if (state == "SUSTAINED_PERFORMANCE") {
             ALOGI("Initialize with SUSTAINED_PERFORMANCE on");
             mHintManager->DoHint("SUSTAINED_PERFORMANCE");
@@ -122,15 +102,105 @@ Power::Power()
             ALOGI("Initialize with EXPENSIVE_RENDERING on");
             mHintManager->DoHint("EXPENSIVE_RENDERING");
         }
+
+        state = android::base::GetProperty(kPowerHalProfileProp, "");
+        if (state == "POWER_SAVE") {
+            ALOGI("Initialize with POWER_SAVE profile");
+            setProfile(PowerProfile::POWER_SAVE);
+            mCurrentPerfProfile = PowerProfile::POWER_SAVE;
+        } else if (state == "BIAS_POWER_SAVE") {
+            ALOGI("Initialize with BIAS_POWER_SAVE profile");
+            setProfile(PowerProfile::BIAS_POWER_SAVE);
+            mCurrentPerfProfile = PowerProfile::BIAS_POWER_SAVE;
+        } else if (state == "BIAS_PERFORMANCE") {
+            ALOGI("Initialize with BIAS_PERFORMANCE profile");
+            setProfile(PowerProfile::BIAS_PERFORMANCE);
+            mCurrentPerfProfile = PowerProfile::BIAS_PERFORMANCE;
+        } else if (state == "HIGH_PERFORMANCE") {
+            ALOGI("Initialize with HIGH_PERFORMANCE profile");
+            setProfile(PowerProfile::HIGH_PERFORMANCE);
+            mCurrentPerfProfile = PowerProfile::HIGH_PERFORMANCE;
+        }
+
         // Now start to take powerhint
         mReady.store(true);
         ALOGI("PowerHAL ready to process hints");
+
+        // setFeature() is called before loading powerhint.json
+        // is finished so update dt2w state here
+	switchDT2W(mDoubleTapEnabled);
     });
+    mNumPerfProfiles = android::base::GetIntProperty(kPowerHalProfileNumProp, 0);
     mInitThread.detach();
 }
 
+Return<void> Power::updateHint(const char *hint, bool enable) {
+    if (!mReady) {
+        return Void();
+    }
+    if (enable) {
+        mHintManager->DoHint(hint);
+    } else {
+        mHintManager->EndHint(hint);
+    }
+    return Void();
+}
+
+Return<void> Power::setProfile(PowerProfile profile) {
+    if (mCurrentPerfProfile == profile) {
+        return Void();
+    }
+
+    // End previous perf profile hints
+    switch (mCurrentPerfProfile) {
+        case PowerProfile::POWER_SAVE:
+            mHintManager->EndHint("PROFILE_POWER_SAVE");
+            break;
+        case PowerProfile::BIAS_POWER_SAVE:
+            mHintManager->EndHint("PROFILE_BIAS_POWER_SAVE");
+            break;
+        case PowerProfile::BIAS_PERFORMANCE:
+            mHintManager->EndHint("PROFILE_BIAS_PERFORMANCE");
+            break;
+        case PowerProfile::HIGH_PERFORMANCE:
+            mHintManager->EndHint("PROFILE_HIGH_PERFORMANCE");
+            break;
+        default:
+            break;
+    }
+
+    // Apply perf profile hints
+    switch (profile) {
+        case PowerProfile::POWER_SAVE:
+            mHintManager->DoHint("PROFILE_POWER_SAVE");
+            break;
+        case PowerProfile::BIAS_POWER_SAVE:
+            mHintManager->DoHint("PROFILE_BIAS_POWER_SAVE");
+            break;
+        case PowerProfile::BIAS_PERFORMANCE:
+            mHintManager->DoHint("PROFILE_BIAS_PERFORMANCE");
+            break;
+        case PowerProfile::HIGH_PERFORMANCE:
+            mHintManager->DoHint("PROFILE_HIGH_PERFORMANCE");
+            break;
+        default:
+            break;
+    }
+
+    return Void();
+}
+
+Return<void> Power::switchDT2W(bool dt2w) {
+    updateHint("DOUBLE_TAP_TO_WAKE", dt2w);
+    std::this_thread::sleep_for(20ms);
+
+    return Void();
+}
+
 // Methods from ::android::hardware::power::V1_0::IPower follow.
-Return<void> Power::setInteractive(bool /* interactive */) {
+Return<void> Power::setInteractive(bool interactive) {
+    updateHint("NOT_INTERACTIVE", !interactive);
+
     return Void();
 }
 
@@ -198,13 +268,6 @@ Return<void> Power::powerHint(PowerHint_1_0 hint, int32_t data) {
             }
             break;
         case PowerHint_1_0::LOW_POWER:
-            if (data) {
-                // Device in battery saver mode, enable display low power mode
-                set_display_lpm(true);
-            } else {
-                // Device exiting battery saver mode, disable display low power mode
-                set_display_lpm(false);
-            }
             break;
         default:
             break;
@@ -212,8 +275,19 @@ Return<void> Power::powerHint(PowerHint_1_0 hint, int32_t data) {
     return Void();
 }
 
-Return<void> Power::setFeature(Feature /*feature*/, bool /*activate*/) {
-    // Nothing to do
+Return<void> Power::setFeature(Feature feature, bool activate) {
+    switch (feature) {
+        case Feature::POWER_FEATURE_DOUBLE_TAP_TO_WAKE:
+            mDoubleTapEnabled = activate;
+
+            // this is only called when the device is booting up or
+            // the user changed the dt2w setting so the touchscreen
+            // should always be on when this is called
+            switchDT2W(activate);
+            break;
+        default:
+            break;
+    }
     return Void();
 }
 
@@ -258,21 +332,10 @@ Return<void> Power::powerHintAsync_1_2(PowerHint_1_2 hint, int32_t data) {
             if (mVRModeOn || mSustainedPerfModeOn) {
                 ALOGV("%s: ignoring due to other active perf hints", __func__);
             } else {
-                if (data == static_cast<int32_t>(AUDIO_STREAMING_HINT::AUDIO_STREAMING_ON)) {
+                if (data) {
                     mHintManager->DoHint("AUDIO_STREAMING");
-                } else if (data ==
-                           static_cast<int32_t>(AUDIO_STREAMING_HINT::AUDIO_STREAMING_OFF)) {
-                    mHintManager->EndHint("AUDIO_STREAMING");
-                } else if (data == static_cast<int32_t>(AUDIO_STREAMING_HINT::TPU_BOOST_SHORT)) {
-                    mHintManager->DoHint("TPU_BOOST",
-                                         std::chrono::milliseconds(TPU_HINT_DURATION_MS::SHORT));
-                } else if (data == static_cast<int32_t>(AUDIO_STREAMING_HINT::TPU_BOOST_LONG)) {
-                    mHintManager->DoHint("TPU_BOOST",
-                                         std::chrono::milliseconds(TPU_HINT_DURATION_MS::LONG));
-                } else if (data == static_cast<int32_t>(AUDIO_STREAMING_HINT::TPU_BOOST_OFF)) {
-                    mHintManager->EndHint("TPU_BOOST");
                 } else {
-                    ALOGE("AUDIO STREAMING INVALID DATA: %d", data);
+                    mHintManager->EndHint("AUDIO_STREAMING");
                 }
             }
             break;
@@ -286,34 +349,17 @@ Return<void> Power::powerHintAsync_1_2(PowerHint_1_2 hint, int32_t data) {
             }
             break;
         case PowerHint_1_2::CAMERA_STREAMING: {
-            const enum CameraStreamingMode mode = static_cast<enum CameraStreamingMode>(data);
-            if (mode < CAMERA_STREAMING_OFF || mode >= CAMERA_STREAMING_MAX) {
-                ALOGE("CAMERA STREAMING INVALID Mode: %d", mode);
-                break;
+            if (data > 0) {
+                mHintManager->DoHint("CAMERA_STREAMING");
+                mCameraStreamingMode = true;
+            } else {
+                mHintManager->EndHint("CAMERA_STREAMING");
+                mCameraStreamingMode = false;
             }
 
-            if (mCameraStreamingMode == mode)
-                break;
-
-            // turn it off first if any previous hint.
-            if ((mCameraStreamingMode != CAMERA_STREAMING_OFF)) {
-                const auto modeValue = kCamStreamingHint.at(mCameraStreamingMode);
-                mHintManager->EndHint(modeValue);
-                if ((mCameraStreamingMode != CAMERA_STREAMING_SECURE)) {
-                    // Boost 1s for tear down if not secure streaming use case
-                    mHintManager->DoHint("CAMERA_LAUNCH", std::chrono::seconds(1));
-                }
-            }
-
-            if (mode != CAMERA_STREAMING_OFF) {
-                const auto hintValue = kCamStreamingHint.at(mode);
-                mHintManager->DoHint(hintValue);
-            }
-
-            mCameraStreamingMode = mode;
-            const auto prop = (mCameraStreamingMode == CAMERA_STREAMING_OFF)
-                                  ? ""
-                                  : kCamStreamingHint.at(mode).c_str();
+            const auto prop = mCameraStreamingMode
+                                  ? "CAMERA_STREAMING"
+                                  : "";
             if (!android::base::SetProperty(kPowerHalStateProp, prop)) {
                 ALOGE("%s: could set powerHAL state %s property", __func__, prop);
             }
@@ -340,6 +386,15 @@ Return<void> Power::powerHintAsync_1_3(PowerHint_1_3 hint, int32_t data) {
         return Void();
     }
 
+    switch (static_cast<LineagePowerHint>(hint)) {
+        case LineagePowerHint::SET_PROFILE:
+            setProfile(static_cast<PowerProfile>(data));
+            mCurrentPerfProfile = static_cast<PowerProfile>(data);
+            return Void();
+        default:
+            break;
+    }
+
     if (hint == PowerHint_1_3::EXPENSIVE_RENDERING) {
         ATRACE_INT(android::hardware::power::V1_3::toString(hint).c_str(), data);
         if (mVRModeOn || mSustainedPerfModeOn) {
@@ -357,6 +412,16 @@ Return<void> Power::powerHintAsync_1_3(PowerHint_1_3 hint, int32_t data) {
     return Void();
 }
 
+// Methods from ::vendor::lineage::power::V1_0::ILineagePower follow.
+Return<int32_t> Power::getFeature(LineageFeature feature) {
+    switch (feature) {
+        case LineageFeature::SUPPORTED_PROFILES:
+            return mNumPerfProfiles;
+        default:
+            return -1;
+    }
+}
+
 constexpr const char *boolToString(bool b) {
     return b ? "true" : "false";
 }
@@ -371,7 +436,7 @@ Return<void> Power::debug(const hidl_handle &handle, const hidl_vec<hidl_string>
             "CameraStreamingMode: %s\n"
             "SustainedPerformanceMode: %s\n",
             boolToString(mHintManager->IsRunning()), boolToString(mVRModeOn),
-            kCamStreamingHint.at(mCameraStreamingMode).c_str(),
+            boolToString(mCameraStreamingMode),
             boolToString(mSustainedPerfModeOn)));
         // Dump nodes through libperfmgr
         mHintManager->DumpToFd(fd);
